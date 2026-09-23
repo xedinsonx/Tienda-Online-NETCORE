@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using CrudDemoPro.Data;
+using CrudDemoPro.Infrastructure;
 using CrudDemoPro.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,10 +11,12 @@ namespace CrudDemoPro.Controllers;
 public class UsuariosController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IKafkaEventPublisher _eventPublisher;
 
-    public UsuariosController(AppDbContext context)
+    public UsuariosController(AppDbContext context, IKafkaEventPublisher eventPublisher)
     {
         _context = context;
+        _eventPublisher = eventPublisher;
     }
 
     // ✅ GET all → devuelve lista (aunque esté vacía)
@@ -24,40 +27,43 @@ public class UsuariosController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    public IActionResult GetById(int id)
+    public async Task<IActionResult> GetById(int id)
     {
-        var usuario = _context.Usuarios.Find(id);
+        var usuario = await _context.Usuarios.FindAsync(id);
         return usuario == null ? NotFound() : Ok(usuario);
     }
 
     [HttpPost]
-    public IActionResult Create(Usuario usuario)
+    public async Task<IActionResult> Create(Usuario usuario)
     {
         _context.Usuarios.Add(usuario);
-        _context.SaveChanges();
+        await _context.SaveChangesAsync();
+        await _eventPublisher.PublishAsync("usuario.created", usuario);
         return CreatedAtAction(nameof(GetById), new { id = usuario.Id }, usuario);
     }
 
     [HttpPut("{id}")]
-    public IActionResult Update(int id, Usuario usuario)
+    public async Task<IActionResult> Update(int id, Usuario usuario)
     {
-        var existing = _context.Usuarios.Find(id);
+        var existing = await _context.Usuarios.FindAsync(id);
         if (existing == null) return NotFound();
 
         existing.Nombre = usuario.Nombre;
         existing.Email = usuario.Email;
-        _context.SaveChanges();
+        await _context.SaveChangesAsync();
+        await _eventPublisher.PublishAsync("usuario.updated", existing);
         return Ok(existing);
     }
 
     [HttpDelete("{id}")]
-    public IActionResult Delete(int id)
+    public async Task<IActionResult> Delete(int id)
     {
-        var usuario = _context.Usuarios.Find(id);
+        var usuario = await _context.Usuarios.FindAsync(id);
         if (usuario == null) return NotFound();
 
         _context.Usuarios.Remove(usuario);
-        _context.SaveChanges();
+        await _context.SaveChangesAsync();
+        await _eventPublisher.PublishAsync("usuario.deleted", usuario);
         return NoContent();
     }
 }
